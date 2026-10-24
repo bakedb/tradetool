@@ -1,13 +1,14 @@
 import requests, shelve
 
 api_key = ""
+allow_debt = True
 
 def write_db(key, value):
-    with shelve.open("tradetool") as db:
+    with shelve.open("tradetool-db") as db:
         db[key] = value
 
 def read_db(key):
-    with shelve.open("tradetool") as db:
+    with shelve.open("tradetool-db") as db:
         if db[key]:
             return db[key]
         else:
@@ -19,13 +20,23 @@ with open('secrets.txt', 'r') as f:
 
 class TradeTool():
     def __init__(self, starting_money=100):
-        self.money = starting_money
-        self.holdings = {"BTC": 0.0, ".INX": 0.0}
+        try:
+            self.money = read_db("money") if read_db("money") != None else starting_money
+            self.assets = read_db("assets") if read_db("assets") != None else {}
+        except KeyError:
+            self.money = starting_money
+            self.assets = {}
+            self.save_to_db()
+
+    def load_from_db(self):
+        self.money = read_db("money")
+        self.assets = read_db("assets")
     
     def save_to_db(self):
         write_db("money", self.money)
-        write_db("holdings", self.holdings)
+        write_db("assets", self.assets)
 
+    # Read API
 
     def stock_symbol_search(self, symbol):
         r = requests.get(f"https://financialmodelingprep.com/stable/search-symbol?query={symbol}&apikey={api_key}")
@@ -43,13 +54,26 @@ class TradeTool():
         r = requests.get(f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={api_key}")
         return r.text
 
-    
-    def trade_stock(self, symbol, sell=False, amount=0):
+    # Actions
+
+    def trade_stock(self, symbol, amount=0):
         price = requests.get(f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={api_key}").json()
         price = price[0]['price']
+        if price > self.money and not allow_debt:
+            return "Too expensive."
+        else:
+            self.money -= price * amount
+            self.assets[symbol] = self.assets.get(symbol, 0) + amount
 
+    def sell_stock(self, symbol, amount=0):
+        if amount > self.assets[symbol]:
+            return "Not enough owned to sell."
+        else:
+            price = requests.get(f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={api_key}").json()
+            price = price[0]['price']
+            self.money += price * amount
+            self.assets[symbol] = self.assets.get(symbol, 0) - amount
 
-
-
-tradetool = TradeTool(starting_money=200)
-print(tradetool.trade_stock("AAPL"))
+# tradetool = TradeTool(starting_money=200)
+# print(tradetool.sell_stock("AAPL", 0.08))
+# tradetool.save_to_db()
